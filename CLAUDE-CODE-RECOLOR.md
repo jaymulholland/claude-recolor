@@ -1,6 +1,6 @@
 # Claude Code VS Code recolour (a recipe)
 
-Swap the Claude Code VS Code extension's orange for a colour you choose. This file is written to be handed to a Claude Code agent: open Claude Code in VS Code and say **"follow CLAUDE-CODE-RECOLOR.md"**. The agent asks you for a colour, installs a small patch script, runs it, and sets it to re-run after extension updates.
+Swap the Claude Code VS Code extension's orange for a colour you choose — either one colour for everything, or separate colours for the tab icon, the chat content and the message input field. This file is written to be handed to a Claude Code agent: open Claude Code in VS Code and say **"follow CLAUDE-CODE-RECOLOR.md"**. The agent asks you for a colour (or colours), installs a small patch script, runs it, and sets it to re-run after extension updates.
 
 Works in VS Code, VS Code Insiders, Cursor and Windsurf on Linux and macOS. On Windows, run the script from Git Bash or WSL, or have the agent port it to PowerShell.
 
@@ -8,15 +8,13 @@ The extension has no accent-colour setting (its orange is hardcoded), so the scr
 
 ### Cost and upkeep
 
-**Tokens.** Tokens are only used while you're talking to the agent. Starting VS Code costs nothing, and so do the automatic re-runs after extension updates, which are a plain shell script with no Claude involved. Rough figures for one run of this recipe, on top of whatever Claude Code itself uses:
+**Tokens.** the automatic re-runs after extension updates is free. Rough figures for one run of this recipe, on top of whatever Claude Code itself uses:
 - **First install:** reading this file is about 6k tokens, writing the script about 2.5k output tokens, and the questions, checks and verification bring the whole run to roughly 15–25k tokens of context.
 - **Changing colour later:** about half that, because the script is only edited, not rewritten. You can skip the agent entirely by editing the variables at the top of the script yourself (see "Changing colour later").
 
 Type `/context` in Claude Code to see the real numbers for your session.
 
 **The watcher.** It waits on file-system events (systemd path unit on Linux, launchd on macOS), so it uses no CPU while idle. It wakes when anything in the extensions folder changes, including other extensions' updates, waits 15 seconds, then runs the script. When there's nothing to patch the script finishes in about 0.02 s; a full patch takes about 0.1 s.
-
-**Disk.** About 6 MB of backups per extension version. VS Code deletes them along with the old version's folder.
 
 **A solid colour has no runtime cost.** The panel just uses a different hex.
 
@@ -34,28 +32,46 @@ Work through the steps in order. Ask the user only where a step says to.
 
 > Heads up: when this is done you'll need to quit VS Code completely and reopen it to see the new colour, so save your work in any other VS Code windows now. Other open windows keep the old extension files loaded, and if any stay open it will look like the recolour didn't work.
 
-### 1. Pick the colour with the user
+### 1. Pick the colour(s) with the user
 
-Use AskUserQuestion with these options, in this order. The question UI can't show a colour picker or swatches, only text, so don't label any option as if it does.
+**First, ask auto or custom.** Use AskUserQuestion:
+
+> Recolour everything the same, or pick different colours for different parts of the panel?
+
+| Option | What it means |
+|---|---|
+| **Auto** (recommended) | One colour for the whole panel — the rest of this recipe, exactly as written, with a single `ACCENT`. |
+| **Custom** | Separate colours for the **tab icon** (what VS Code shows on the tab and in the activity bar, including the "finished" dot), the **chat content** (the header logo/wordmark, the mascot/creature, and the panel's highlights and tinted backgrounds), and the **text field** (the message input box's border/focus colour). |
+
+If Auto, skip ahead and follow the rest of the recipe unchanged.
+
+If Custom, run the colour-picking flow below once per group — tab icon, then chat content, then text field — letting the user answer "same as [group]" to reuse a colour instead of repeating the question. Each group's colour uses the same four methods and presets as a single `ACCENT` would, including the animated-gradient option (a group can be animated independently of the others; see "Animated gradient" below).
+
+Before extending the script, inspect the real installed extension rather than guessing which patch line belongs to which group — `resources/*.svg` filenames, the CSS rules around `--app-claude-orange`, and the input field's markup in `webview/index.js` all vary by extension version. The chat content's "background" tint may not be cleanly separable from its highlight colour without new CSS; if it isn't, say so and fold it into chat content rather than inventing a selector that doesn't exist. Then, in "Install the script" below, replace the single blanket substitution (`s/#d97757/$ACCENT/gi` across css/js/svgs) with one targeted substitution per group, each pointing at its own variable (e.g. `ACCENT_TAB`, `ACCENT` for chat content, `ACCENT_FIELD`) — same inspect-patch-verify approach as "Beyond a single colour". Add the new variables to `WANT` (step 3) so the cache invalidates when any of them change, and verify every group visually in the real panel, not just by grepping for the old hex. The text field also sits near the permission-mode styling described in "Permission-mode colours" below — if the user wants the text field colour to apply in every permission mode too, that needs `MODE_COLOURS` pointed at `ACCENT_FIELD` instead of `ACCENT_DARK`; ask rather than assuming.
+
+Use AskUserQuestion with these options, in this order, for each colour you need (once for Auto, once per group for Custom). The question UI can't show a colour picker or swatches, only text, so don't label any option as if it does.
 
 | Option | What you do |
 |---|---|
-| **Describe it** | User types something like "dusty teal", "frost white" or "match the Tokyo Night accent". You turn it into a hex, then confirm by showing the hex and a one-line description. If they describe more than one colour (a gradient, a pattern, an effect), see "Beyond a single colour" below; never quietly flatten it to one hex. |
+| **Describe it** | User types something like "dusty teal", "frost white" or "match the theme accent". You turn it into a hex, then confirm by showing the hex and a one-line description. If they describe more than one colour (a gradient, a pattern, an effect), see "Beyond a single colour" below; never quietly flatten it to one hex. |
 | **Choose a named preset** | Ask a second AskUserQuestion for the family: **Animated gradient**, **Warm**, **Cool**, **Neutral**. Animated gradient needs no third question. For the others, ask a third AskUserQuestion listing that family's presets (below), with the hex and any theme note in each description. |
 | **Open VS Code's colour picker** | Say up front that this opens a file in the editor. Write a scratch file `accent-picker.css` (in your scratchpad, or `/tmp`) containing the block below, then open it with `code <path>` (or `cursor <path>`). Tell the user: hover the little swatch next to the hex, pick a colour in the picker, save the file (Ctrl/Cmd+S), then tell you "done". Read the hex back from the file. |
 | **I have a hex** | User types it. |
 
-If the script is already installed (step 3), read its current `ACCENT` (and `RAINBOW`) first and mention it, so the user knows what they're changing from.
+If the script is already installed (step 3), read its current colour variables (`ACCENT`, and in a custom install `ACCENT_TAB`/`ACCENT_FIELD` too) and `RAINBOW` first, and mention them, so the user knows what they're changing from.
 
-**Animated gradient.** This is the script's `RAINBOW` mode: a gradient that slides through a list of colours (`RAINBOW_COLOURS`, rainbow by default). If the user picks it, or asks for a rainbow, a gradient through several colours or an animated colour under any option, set `RAINBOW=1` in step 3. Ask whether they want the default rainbow or their own colours; for their own, set `RAINBOW_COLOURS` (2–6 colours work best) and, if they mention speed, `RAINBOW_SECS`. For any other choice, set `RAINBOW=0`, even if it is currently 1. The gradient still needs an `ACCENT`, used as the static fallback when the OS has reduced motion turned on and for filled buttons. Default to Violet `#A78BFA`, or a middle colour of their list, unless the user names one. Tell the user it keeps redrawing while the panel is open, so it uses some CPU and battery (see "Cost and upkeep").
+**Animated gradient.** This is the script's `RAINBOW` mode: a gradient that slides through a list of colours (`RAINBOW_COLOURS`, rainbow by default). If the user picks it, or asks for a rainbow, a gradient through several colours or an animated colour under any option, set `RAINBOW=1` in step 3. Ask whether they want the default rainbow or their own colours; for their own, set `RAINBOW_COLOURS` (2–6 colours work best) and, if they mention speed, `RAINBOW_SECS`. For any other choice, set `RAINBOW=0`, even if it is currently 1. The gradient still needs an `ACCENT`, used as the static fallback when the OS has reduced motion turned on and for filled buttons. Default to Violet `#A78BFA`, or a middle colour of their list, unless the user names one. Tell the user it keeps redrawing while the panel is open, so it uses some CPU and battery (see "Cost and upkeep"). On at least one Windows machine this redraw cost was severe enough to freeze VS Code while the panel was in active use (not just idle animation), forcing a restart; the same setup was fine on Linux. If a user on any platform reports freezing or heavy lag after enabling `RAINBOW=1`, set `RAINBOW=0` (keep `ACCENT` as a solid colour) as the immediate fix, and treat the animated gradient as higher-risk until this is root-caused further.
 
-**Beyond a single colour.** The script can only do two things to the panel's accent: one solid colour, or the animated gradient above. Anything else the user describes falls into one of these:
+**Beyond a single colour.** The script can only do two things to the panel's accent: one solid colour, or the animated gradient above. For anything else the user describes, classify it by the *mechanism* it needs, not by the specific word they used — "strobing", "throbbing", "shimmering", "morphing" and every other synonym map onto one of these the same way the examples do; don't treat the examples as an exhaustive keyword list:
 
-| They ask for | What to do |
-|---|---|
-| Several colours, animated | Animated gradient with their colours in `RAINBOW_COLOURS`. |
-| A pattern, texture or background for the panel (stripes, dots, a tinted backdrop) | Pick a solid `ACCENT` with them, then write the effect into `~/.config/claude-recolor/custom.css` (see "What else you can customise"). The script appends it on every run. |
-| Anything else: a gradient that doesn't move, a radial gradient, a patterned logo or tab icon | The script doesn't support it yet. Before building anything, tell the user what can carry the effect (the SVG icons, the mascot, brand text) and what can't: borders, focus rings, highlights and tinted backgrounds all come from one colour variable, so they stay a solid `ACCENT`. Then offer to extend the script, following the rainbow code's pattern, and test it in the real panel. |
+| The mechanism | Examples (not exhaustive) | What to do |
+|---|---|---|
+| A static visual layered on a solid colour — filter, shadow, background, border, font | glow, halo, drop shadow, texture, stripes, dots, tinted backdrop, rounded/square corners | Pick a solid `ACCENT` with them, then write the effect into `~/.config/claude-recolor/custom.css` (see "What else you can customise") — a glow is just `filter: drop-shadow(...)` or `box-shadow` in the accent colour, no new script logic needed. The script appends it on every run. |
+| Continuous colour motion — hue shifts smoothly over time, never goes dark or blank | rainbow, flowing colour, shifting hues, colour-cycling, colours "morphing" into each other | Animated gradient with their colours in `RAINBOW_COLOURS`. This is already built and already respects `prefers-reduced-motion`. |
+| Rapid changes in brightness or visibility — something toggles, pulses, or appears/disappears repeatedly | flashing, blinking, strobing, pulsating, throbbing, flickering | Not built, and higher-risk than the other rows regardless of which of these words (or a synonym) was used: rapid luminance/visibility change is a known photosensitive-seizure trigger (WCAG's general threshold is no more than 3 such changes per second; stay well under that). If the user wants it anyway, agree a safe rate with them explicitly, cap it in whatever `@keyframes` you write, and still respect `prefers-reduced-motion`. Offer it, don't default to it. |
+| Anything needing new rendering entirely | a gradient that doesn't move, a radial gradient, a patterned logo or tab icon | The script doesn't support it yet. Before building anything, tell the user what can carry the effect (the SVG icons, the mascot, brand text) and what can't: borders, focus rings, highlights and tinted backgrounds all come from one colour variable, so they stay a solid `ACCENT`. Then offer to extend the script, following the rainbow code's pattern, and test it in the real panel. |
+
+When a request doesn't clearly fit one mechanism, ask rather than assume — the same "don't force a guess" rule as phrase-splitting in `/recolor`.
 
 ```css
 /* Hover the swatch below, pick your colour, save this file, then tell Claude "done". */
@@ -63,6 +79,8 @@ If the script is already installed (step 3), read its current `ACCENT` (and `RAI
   --accent: #5B9CF6;
 }
 ```
+
+**Permission-mode colours.** The input box changes colour by permission mode: Plan, Auto-accept edits, Auto and Bypass permissions each style their send button, focus ring and icon from VS Code's own theme tokens (`errorForeground` for Auto/Bypass permissions, `focusBorder` for Plan, `foreground` for Auto-accept edits) instead of the extension's branding — a deliberate safety cue so the riskier modes stand out no matter what accent you pick. Because of this they're governed entirely by whichever VS Code colour theme is active, not by this script, and look different (sometimes very different, e.g. appearing black on one theme and orange-red on another) depending on it — so a user who switches themes often will see this drift independently of the recolour. Ask whether they want to keep that built-in theming (default, `MODE_COLOURS=0`) or have every mode match their chosen accent instead for a fully consistent look (`MODE_COLOURS=1`). Default to keeping it unless they ask for consistent colouring.
 
 Presets, by family. Most are mid-brightness so they read on both dark and light themes; the ones that don't say so, and you should repeat that note to the user. Neutrals give all four shades because the derivation rules in step 2 don't suit near-white or near-black; use them as given, with the default `DONE_DOT`.
 
@@ -83,6 +101,8 @@ Presets, by family. Most are mid-brightness so they read on both dark and light 
 
 ### 2. Derive the rest of the palette
 
+In a custom install, this derivation only applies to the chat-content colour — the tab icon and text field colours are used as-is, with no derived shades. Derive `DONE_DOT` from whichever colour ends up on the tab icon (`ACCENT_TAB` in a custom install, `ACCENT` in auto).
+
 From the chosen `ACCENT`, compute (keep the same hue for the first three):
 
 | Variable | Rule | Used for |
@@ -93,11 +113,11 @@ From the chosen `ACCENT`, compute (keep the same hue for the first three):
 | `ACCENT_BG` | very dark shade, roughly 20% accent mixed into `#1E1E1E` | Jupyter banner background |
 | `DONE_DOT` | a clearly different hue from both `ACCENT` and the blue "working" dot `#3B82F6`. Default green `#22C55E`; if the accent is green or teal, use amber `#F59E0B`; if it is blue, green is fine | dot on the tab icon when Claude has finished |
 
-Show the user the five values in one line before installing.
+Show the user the resulting values in one line before installing — five for auto; more for custom, grouped by tab icon / chat content / text field.
 
 ### 3. Install the script
 
-Write the script below to `~/.local/bin/claude-recolor`, filling in the five colours and `RAINBOW` (0 or 1), and `chmod +x` it. Copy it exactly otherwise, since every line handles a spot that otherwise stays the old colour. Then run it. It should print `claude-recolor: patched anthropic.claude-code-<version>` for each installed version.
+Write the script below to `~/.local/bin/claude-recolor`, filling in the five colours, `RAINBOW` (0 or 1) and `MODE_COLOURS` (0 or 1, see "Permission-mode colours" above), and `chmod +x` it. Copy it exactly otherwise, since every line handles a spot that otherwise stays the old colour. For a custom install, extend it per step 1 first: add `ACCENT_TAB`/`ACCENT_FIELD` alongside the existing variables, include them in `WANT`, and split the blanket `#d97757` substitution into one per group before filling in values. Then run it. It should print `claude-recolor: patched anthropic.claude-code-<version>` for each installed version.
 
 **If `~/.local/bin/claude-recolor` already exists**, don't overwrite it. Compare it with the script below, ignoring the variable values and comment lines. If the logic matches, only edit the variable values, so the user's own comments (such as notes on old palettes) survive. If the logic differs, the recipe has changed since it was installed: carry the user's variables and comments over into the new script.
 
@@ -118,6 +138,7 @@ CUSTOM_CSS="${XDG_CONFIG_HOME:-$HOME/.config}/claude-recolor/custom.css"  # opti
 RAINBOW=0              # 1 = animated rainbow gradient on top of ACCENT (ACCENT stays as the reduced-motion fallback)
 RAINBOW_COLOURS=("#FF4D4D" "#FF9F1A" "#FFE03B" "#4ADE80" "#3B9BFF" "#A66BFF")
 RAINBOW_SECS=6         # one full trip through the colours
+MODE_COLOURS=0         # 1 = also make Plan/Auto-accept-edits/Auto/Bypass-permissions match ACCENT_DARK; 0 leaves them on VS Code's own theme tokens (Anthropic's built-in safety colours, see "Permission-mode colours")
 
 # Every VS Code-family extensions folder that exists gets patched
 EXT_ROOTS=(
@@ -130,7 +151,7 @@ EXT_ROOTS=(
 STAMP=".recolor-stamp"
 custom_sum=""
 [[ -f "$CUSTOM_CSS" ]] && custom_sum="$(cksum < "$CUSTOM_CSS")"
-WANT="$ACCENT $ACCENT_DARK $ACCENT_SOFT $ACCENT_BG $DONE_DOT $custom_sum rainbow=$RAINBOW ${RAINBOW_COLOURS[*]} $RAINBOW_SECS"
+WANT="$ACCENT $ACCENT_DARK $ACCENT_SOFT $ACCENT_BG $DONE_DOT $custom_sum rainbow=$RAINBOW ${RAINBOW_COLOURS[*]} $RAINBOW_SECS mode_colours=$MODE_COLOURS"
 
 # perl -pi works the same on Linux and macOS (sed -i does not)
 sub() { perl -pi -e "$1" "${@:2}"; }
@@ -139,25 +160,24 @@ sub() { perl -pi -e "$1" "${@:2}"; }
 if [[ "$RAINBOW" == 1 ]]; then
   loop=("${RAINBOW_COLOURS[@]}" "${RAINBOW_COLOURS[0]}")
   n=$(( ${#loop[@]} - 1 ))
-  stops="" keys="" bands=""
+  stops="" bands=""
   for i in "${!loop[@]}"; do
     stops+="<stop offset=\"$(awk "BEGIN{print $i/$n}")\" stop-color=\"${loop[$i]}\"/>"
-    keys+="  $(awk "BEGIN{printf \"%.2f\", $i*100/$n}")% { --app-claude-orange: ${loop[$i]}; }"$'\n'
     bands+="${bands:+, }${loop[$i]} $(( i * 40 ))px"
   done
   # SVG gradient that slides sideways forever; fills reference it as url(#rcRainbow)
   export RC_DEFS="<defs><linearGradient id=\"rcRainbow\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\" spreadMethod=\"repeat\">$stops<animateTransform attributeName=\"gradientTransform\" type=\"translate\" from=\"0 0\" to=\"1 0\" dur=\"${RAINBOW_SECS}s\" repeatCount=\"indefinite\"/></linearGradient></defs>"
+  # Only these few elements animate directly, each on its own background-position.
+  # Earlier versions instead registered --app-claude-orange as an animated custom
+  # property inherited by ~28 descendants (every border, focus ring and tint that
+  # reads it) — elegant, but it forced Chromium to recompute style for all of them
+  # every frame, which froze VS Code outright on at least one Windows machine.
+  # Scoping the animation to a handful of concrete elements avoids that; borders,
+  # rings and tints stay a solid ACCENT instead of cycling.
   RAINBOW_CSS="
 /* claude-recolor rainbow */
-/* Registering the accent variable lets it animate, so every border, focus ring,
-   tint and highlight that uses it cycles through the colours in sync */
-@property --app-claude-orange { syntax: \"<color>\"; inherits: true; initial-value: $ACCENT; }
-@keyframes rc-hue {
-$keys}
 @keyframes rc-slide { to { background-position: $(( n * 40 ))px 0; } }
 @media (prefers-reduced-motion: no-preference) {
-  html { animation: rc-hue ${RAINBOW_SECS}s linear infinite; }
-  /* Solid accent text and fills get a moving left-to-right gradient instead */
   [class^=\"brand_\"], [class*=\" brand_\"], [class^=\"orbChar_\"], [class*=\" orbChar_\"],
   [class^=\"worktreeBannerButton_\"], [class*=\" worktreeBannerButton_\"],
   [class^=\"usageFillHigh_\"], [class*=\" usageFillHigh_\"], [class^=\"orbDot_\"], [class*=\" orbDot_\"] {
@@ -219,14 +239,27 @@ for root in "${EXT_ROOTS[@]}"; do
       # Header wordmark starburst and effort gauge use the *button* variable, not the main accent
       sub 's/(fill|stroke):"var\(--app-claude-(?:clay-button-)?orange\)"/$1:"url(#rcRainbow)"/g' "$js"
       printf '\n%s\n' "$RAINBOW_JS" >> "$js"
-      # Faded copies of the accent are baked in as hex+alpha (e.g. #DD20881a); turn them
-      # back into the animated variable at the same opacity. The root declaration stays.
-      RC_ACCENT="$ACCENT" perl -pi -e 's{(?<!--app-claude-orange:)\Q$ENV{RC_ACCENT}\E([0-9a-f]{2})?}{defined $1 ? sprintf("color-mix(in srgb,var(--app-claude-orange) %d%%,transparent)", hex($1)*100/255+0.5) : "var(--app-claude-orange)"}gie' "$css"
       printf '%s' "$RAINBOW_CSS" >> "$css"
-      # Variables defined from the accent on <html> (spinner, unread dot) can resolve before
-      # the animation applies; re-declaring them on <body> makes them pick up the live colour
-      aliases="$(grep -oE -- '--[a-z0-9-]+:var\(--app-claude-orange\)' "$css" | sort -u | tr '\n' ';')"
-      [[ -n "$aliases" ]] && printf 'body { %s }\n' "$aliases" >> "$css"
+    fi
+
+    if [[ "$MODE_COLOURS" == 1 ]]; then
+      # Plan / Auto-accept edits / Auto / Bypass permissions style their send button,
+      # focus ring and icon from VS Code's own theme tokens, not the extension's
+      # branding (see "Permission-mode colours"). This makes them match ACCENT_DARK
+      # and ivory instead, same as the default mode already does. Scoped to just
+      # these [data-permission-mode=...] rules so real error text elsewhere keeps
+      # its actual error colour.
+      perl -pi -e '
+        s/([^{}]*\[data-permission-mode=[^{}]*)\{([^{}]*)\}/
+          my ($sel,$body) = ($1,$2);
+          $body =~ s{var\(--vscode-focusBorder,var\(--app-button-background\)\)}{var(--app-claude-clay-button-orange)}g;
+          $body =~ s{--app-error-foreground}{--app-claude-clay-button-orange}g;
+          $body =~ s{--app-primary-foreground}{--app-claude-clay-button-orange}g;
+          $body =~ s{--app-primary-background}{--app-claude-ivory}g;
+          $body =~ s{--app-button-foreground}{--app-claude-ivory}g;
+          "$sel\{$body\}"
+        /gex
+      ' "$css"
     fi
 
     if [[ -f "$CUSTOM_CSS" ]]; then
@@ -243,6 +276,8 @@ done
 **Verify:** grep the patched version folder for `#d97757`, `#c6613f`, `#f37726`, `#f5a66a` and `#3f2a1f` (case-insensitive) across `webview/index.css`, `webview/index.js` and `resources/*.svg`. All counts should be 0. If a newer extension version introduces a new orange, add it to the script rather than leaving it.
 
 With `RAINBOW=1`, also check that `webview/index.js` contains no `var(--app-claude-…orange)` and no `ACCENT` or `ACCENT_DARK` hex. Every accent fill or stroke there should have become `url(#rcRainbow)`; anything left over shows as a static colour while the rest animates. Then run `node --check webview/index.js` if Node is available. `index.js` is a single minified line of several MB, so count matches (`grep -oic`, or a short Python script) rather than printing them with wide context.
+
+With `MODE_COLOURS=1`, grep `webview/index.css` for `[data-permission-mode=` and confirm none of those rule bodies still contain `--app-error-foreground`, `--app-primary-foreground`, `--app-primary-background`, `--app-button-foreground` or `--vscode-focusBorder`. Switching modes with Shift-Tab in the real panel (or the mode picker) should now show the same accent colour in every mode instead of changing.
 
 ### 4. Make it re-run after extension updates
 
@@ -316,6 +351,8 @@ Then point them at the "What else you can customise" section below.
 
 ## What gets changed
 
+This is the auto-mode mapping (a single `ACCENT`). A custom install repoints a subset of these at `ACCENT_TAB` or `ACCENT_FIELD` instead, per the groups in step 1.
+
 All inside `<extensions folder>/anthropic.claude-code-<version>/`:
 
 | File | Original | Becomes |
@@ -336,9 +373,14 @@ All inside `<extensions folder>/anthropic.claude-code-<version>/`:
 - Brand text, the orb, the usage bar and the worktree button get a moving left-to-right gradient.
 - Filled buttons keep the solid `ACCENT_DARK` so their white text stays readable. The "finished" dot stays `DONE_DOT`.
 
+**With `MODE_COLOURS=1`**, on top of the above:
+- The `[data-permission-mode=...]` rules for Plan, Auto-accept edits, Auto and Bypass permissions get their send button, focus ring and icon repointed from VS Code's theme tokens (`errorForeground`, `focusBorder`, `foreground`, `button-foreground`) to `ACCENT_DARK`/ivory, matching the default mode. Nothing else that uses those same tokens (genuine error messages, for instance) is touched — only these specific rules.
+
 Originals are kept as `webview/index.css.bak`, `webview/index.js.bak` and `.orig-resources/*.svg` in each version folder.
 
 **Left alone on purpose** (these are status colours, not branding): warning amber `#E5A54B`, error red `#C74E39`, success green, the blue "working" dot `#3B82F6`, chart colours, diff-editor colours and high-contrast theme highlights. Also untouched: `claude-logo.png` (the Extensions list icon) and `ClawdWithGradCap.png` (hidden by `hideOnboarding`).
+
+**Permission-mode colours, by default** (`MODE_COLOURS=0`): Plan, Auto-accept edits, Auto and Bypass permissions deliberately style their send button/focus ring/icon from VS Code's own theme tokens rather than the extension's branding, as a safety cue for the riskier modes. This means they follow whichever colour theme is active and are *not* touched by `ACCENT` — on VS Code's stock dark theme Auto/Bypass permissions render in a reddish-orange (`errorForeground`); on a theme like Tokyo Day the same tokens can render as near-black. If a user reports the panel "snapping back to orange" after it briefly showed the right colour, check whether a permission-mode switch (often automatic, e.g. a default-to-Auto setting or a one-time mode notice) coincided with it before assuming a caching bug — this is almost always the actual cause. Set `MODE_COLOURS=1` for a consistent accent across every mode instead.
 
 ## Changing colour later
 
@@ -400,3 +442,11 @@ Check the Linux watcher with `systemctl --user status claude-recolor.path` and `
   (`--app-claude-orange` is the variable name; after patching it holds your colour.) The same file can set a different font, round or square off corners, or restyle message bubbles. Ask Claude to inspect the panel's classes and write the CSS.
 - **Your own mascot or logo.** Replace `resources/clawd.svg`, `claude-logo.svg` and the welcome art with your own SVGs (keep the same size and viewBox). Have Claude extend the script to copy them in after patching.
 - **Rename Claude.** The panel's wording ("Claude is working", "Ask Claude for help", …) lives as plain strings in `webview/index.js`, so the script can swap "Claude" for any name. Have the agent replace only quoted, user-facing strings, never code identifiers, and check the panel still loads after a reload.
+
+## The `/recolor` slash command
+
+A custom slash command at `.claude/commands/recolor.md` means changing colour later doesn't need "follow CLAUDE-CODE-RECOLOR.md" again — just `/recolor sky blue` or `/recolor rainbow` from inside any Claude Code session. It counts colour phrases rather than needing a keyword: one phrase recolours everything, two splits tab icon+chat content from the text field, three sets tab icon / chat content / text field separately (`/recolor rainbow rainbow blue`, no "custom" needed). It reads the phrase(s), derives the palette the same way step 1–2 above do, edits the variables at the top of `~/.local/bin/claude-recolor` (same as "Changing colour later", extending it for per-group variables the same way step 1's Custom instructions describe if it hasn't been already), re-runs it, and reminds the user to quit and reopen VS Code. It only changes colour on an existing install — for first-time setup, or anything beyond colour (permission-mode colours, patterns, renaming), it defers back to this recipe.
+
+`/recolor` doesn't collide with anything: Claude Code's built-in `/color` (US spelling only) is unrelated — it just tints the session's prompt bar (terminal/claude.ai-only, invisible inside the VS Code panel), not the extension.
+
+**If `~/.claude/commands/recolor.md` (global) or this project's `.claude/commands/recolor.md` doesn't exist yet**, install it as part of following this recipe: copy the command file from the claude-recolor repo this recipe came from, or write one with the same five steps (resolve colour → derive palette → edit the installed script's variables → run it → remind to restart VS Code), into `~/.claude/commands/recolor.md` so it works in any project, not just this one.
