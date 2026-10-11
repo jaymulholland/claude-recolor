@@ -2,7 +2,7 @@
 
 # claude-recolor
 
-**Replace Claude Code's orange with any colour you want.**
+**Replace Claude Code's orange with any color you want within Visual Studio Code.**
 
 <img src="assets/demo.gif" width="428" alt="The Claude Code panel in VS Code with its logo, mascot and tab icons cycling through an animated rainbow gradient">
 
