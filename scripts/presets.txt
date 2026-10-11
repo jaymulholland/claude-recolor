@@ -1,0 +1,14 @@
+# Named colour presets for claude-recolor-resolve.
+# Format: Name|#HEX  (case-insensitive name match, "-" and spaces both accepted)
+# These feed the normal HSL-derivation pipeline (ACCENT_DARK/SOFT/BG computed from the hex).
+# Neutrals that need fixed, non-derived shades live in presets-neutral.txt instead.
+Coral red|#F87171
+Amber|#FBBF24
+Neon yellow|#FFE01A
+Warm yellow|#FAE311
+Pink|#F472B6
+Mint|#4ADE80
+Teal|#2DD4BF
+Sky blue|#5B9CF6
+Violet|#A78BFA
+Slate|#4A565C

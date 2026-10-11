@@ -5,7 +5,24 @@ argument-hint: [colour or "rainbow"]
 
 Change the Claude Code VS Code extension's accent colour(s) based on: $ARGUMENTS
 
-This is the fast path for someone who already has claude-recolor installed and just wants a new colour — not the full first-time walkthrough. Keep the exchange short. If `~/.local/bin/claude-recolor` doesn't exist yet, tell the user to run the full recipe first (`follow CLAUDE-CODE-RECOLOR.md`) instead of attempting any of this — this command only changes colour on an existing install.
+This is the fast path for someone who already has claude-recolor installed and just wants a new colour — not the full first-time walkthrough. If `~/.local/bin/claude-recolor` doesn't exist yet, tell the user to run the full recipe first (`follow CLAUDE-CODE-RECOLOR.md`) instead of attempting any of this — this command only changes colour on an existing install.
+
+**0. Try the fast path first, before any of the reasoning below.** If `~/.local/bin/claude-recolor-resolve` exists, just run:
+
+```
+~/.local/bin/claude-recolor-resolve "$ARGUMENTS"
+```
+
+one shell call, nothing else first. It splits `$ARGUMENTS` on commas, resolves each phrase against known presets/hexes/"rainbow", derives the full palette with real maths, edits the installed script, and runs it — all without you reasoning through any of it. Handle its result:
+
+- **Exit 0** — done. Tell the user what was applied (the tool prints the final variable values) and remind them to quit VS Code completely and reopen it (see step 6 below). Stop here.
+- **Exit 2** (`UNRESOLVED: <phrase>` on stderr) — the phrase isn't a known preset, hex, or "rainbow", so it needs real language understanding: resolve it to a hex yourself using step 1 below (presets table, description → hex, or `AskUserQuestion` if ambiguous), then re-invoke the same command with that phrase replaced by the resolved hex. Only the unresolved phrase needs this — leave any already-valid phrases in the spec as-is.
+- **Exit 3** — the installed script doesn't support as many groups as were given (e.g. two colours but it's still auto-mode). Fall through to the full reasoning below (steps 1-3), which includes the custom-engineering path from CLAUDE-CODE-RECOLOR.md.
+- **Exit 1** or the file doesn't exist — fall through to the full reasoning below.
+
+If `~/.local/bin/claude-recolor-resolve` doesn't exist but `~/.local/bin/claude-recolor` does, the install predates this tool — follow the steps below as before (they still work standalone), and consider copying `claude-recolor-resolve.sh`/`palette.pl`/the presets files from the claude-recolor repo alongside the existing install so next time is fast.
+
+The rest of this file (steps 1-6) is the fallback: either `claude-recolor-resolve` doesn't exist yet, or it hit exit 3 (a multi-group split the installed script doesn't support yet, which needs real per-version engineering, not a lookup). **If it hit exit 2 instead** (one phrase was free text), don't walk through all of steps 1-6 by hand — just resolve that one phrase to a hex using step 1's presets/description/`AskUserQuestion` guidance below, then go back to step 0 and re-invoke `claude-recolor-resolve` with the hex in place of the phrase; it'll derive the palette and apply it from there.
 
 **1. Count how many colour phrases are in `$ARGUMENTS`** — no keyword needed, just the count:
 
@@ -15,11 +32,15 @@ This is the fast path for someone who already has claude-recolor installed and j
 - **One phrase** — e.g. `blue`, `sky blue`, `rainbow`, `#5B9CF6`, `dusty teal`. **Auto mode**: a single `ACCENT` for the whole panel. This is the common case.
 - **Two phrases** — e.g. `rainbow blue` or `navy, teal`. First → **tab icon + chat content together**, second → **text field** alone.
 - **Three phrases** — e.g. `rainbow rainbow blue` or `coral, amber, sky blue`. In order: **tab icon**, **chat content**, **text field**.
-- **Empty** — ask with AskUserQuestion: one colour for everything, or separate tab icon / chat content / text field colours? Then continue below with whichever count they imply.
+- **Empty** — ask once with AskUserQuestion, same options as below, and mention in the question text that they can name up to three colours separated by commas for separate tab icon / chat content / text field. Don't ask a separate "one colour or separate colours?" meta-question first — the comma-count in their answer already tells you which case applies, so a second round trip would be redundant. Then continue below with whichever count their answer implies.
 
-For any phrase, resolve it to a hex the same way CLAUDE-CODE-RECOLOR.md's step 1 would (read that file first if it's present in this project for the full picker flow, preset table and palette-derivation formulas) — including "rainbow"/"gradient" meaning the animated gradient mode, not a solid hex.
+For any phrase, resolve it to a hex the same way CLAUDE-CODE-RECOLOR.md's step 1 would (read that file first if it's present in this project for the full picker flow, preset table and palette-derivation formulas) — including "rainbow"/"gradient" meaning the animated gradient mode, not a solid hex. If you need to ask, ask once: a single AskUserQuestion call with options Sky blue, Warm yellow, Rainbow (animated) and Slate — or, if `~/.config/claude-recolor/dedicated.txt` exists, its four saved `Name = #HEX` lines instead — (plus the tool's built-in Other for anything else, noted in the question text — that's also where Frost white, Violet, Black and "open the colour picker" resolve, by name) — never a chain of follow-up questions across turns. **Never add your own "Other" row to the options list** — the tool always appends one automatically, and a hand-added one shows up as a second, near-duplicate "other" button.
 
-**2. Derive each group's palette**: `ACCENT_DARK` (~20% darker, a touch more saturated, white text on it must reach ≥4.5:1 contrast), `ACCENT_SOFT` (~35% lighter tint), `ACCENT_BG` (~20% accent mixed into `#1E1E1E`), `DONE_DOT` (a hue clearly different from both `ACCENT` and the blue "working" dot `#3B82F6` — default green `#22C55E`, amber `#F59E0B` if the accent is itself green/teal). Show the values in one line per group before applying.
+**If an Other answer resolves to a hex that isn't one of the named presets** (a bare hex, or a description you turned into one), ask a quick follow-up after confirming it: "Save `<name>` (`<hex>`) as a preset for next time?" If yes, append a `Name = #HEX` line to `~/.config/claude-recolor/presets.txt` (create it if needed). Check that file by name alongside the built-in presets table when resolving future Other answers.
+
+**If they say yes, also ask which of the four dedicated buttons to replace** (or keep it Other-only, recommended) — same mechanic as CLAUDE-CODE-RECOLOR.md's step 1. Write the result to `~/.config/claude-recolor/dedicated.txt` as four `Name = #HEX` lines, seeding it from the current four if it doesn't exist yet.
+
+**2. Derive each group's palette.** Run `perl ~/.local/bin/palette.pl '<hex>'` for the group mapped to chat content/`ACCENT` (tab icon and text field groups are used as-is, no derived shades) — it prints `ACCENT_DARK`/`ACCENT_SOFT`/`ACCENT_BG`/`DONE_DOT` from real HSL and WCAG-contrast maths, so there's no hand-estimation to get wrong. (Rules it implements, for reference: `ACCENT_DARK` ~20% darker and a touch more saturated, white text on it reaching ≥4.5:1 contrast, except yellow-family hues ~45-65° where it stays close to `ACCENT` instead to avoid turning muddy; `ACCENT_SOFT` a ~35% lighter tint; `ACCENT_BG` ~20% accent mixed into `#1E1E1E`; `DONE_DOT` a hue clearly different from `ACCENT` and the blue "working" dot `#3B82F6`.) Show the values in one line per group before applying.
 
 **3. Apply it to `~/.local/bin/claude-recolor`:**
 
@@ -30,6 +51,6 @@ For any phrase, resolve it to a hex the same way CLAUDE-CODE-RECOLOR.md's step 1
 
 **5. Verify.** Grep the patched files for the old hex values the same way CLAUDE-CODE-RECOLOR.md's step 3 verify check does — all counts should be 0. For any group set to rainbow, also check `webview/index.js` has no leftover static accent hex or `var(--app-claude-...orange)` where it should have become `url(#rcRainbow)`.
 
-**6. Tell the user to quit VS Code completely (File → Exit, every window) and reopen it.** A plain "Developer: Reload Window" isn't enough — other open windows keep the old files loaded, and VS Code's own window needs a full restart to drop cached tab icons. Their Claude conversations resume afterwards.
+**6. Tell the user to quit VS Code completely (File → Exit, every window) and reopen it.** A plain "Developer: Reload Window" isn't enough — other open windows keep the old files loaded, and VS Code's own window needs a full restart to drop cached tab icons. Their Claude conversations resume afterwards. Mention that they may also see a one-time "installation appears to be corrupt" notice from VS Code after patching — phrase it as something that can happen, not a certainty. It's just VS Code's checksum noticing the edited files, it's harmless, and they can dismiss it (or choose "Don't show again").
 
 For anything beyond a plain colour or the rainbow — permission-mode colours (`MODE_COLOURS`), any other visual effect (judge by mechanism, not the word used — see the recipe's "Beyond a single colour", which also covers why rapid flashing/blinking-type effects need a safety check before ever being built), renaming Claude — point the user at the full recipe instead of trying to handle it here.

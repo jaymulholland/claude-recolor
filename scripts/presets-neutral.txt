@@ -1,0 +1,6 @@
+# Neutral presets with fixed, non-derived shades (see CLAUDE-CODE-RECOLOR.md step 2:
+# the normal darken/lighten/mix rules don't suit near-white or near-black).
+# Format: Name|ACCENT|ACCENT_DARK|ACCENT_SOFT|ACCENT_BG
+# DONE_DOT still derives normally (default green, unless the hue falls in the green/teal band).
+Frost white|#E3ECF5|#4A6A8A|#F3F7FB|#454749
+Black|#18181B|#3F3F46|#A1A1AA|#2A2A2E
