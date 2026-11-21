@@ -12,6 +12,8 @@
 
 ---
 
+simply point Claude Code at this repo and let it clone the repo somewhere and walk you through selecting your colours.
+
 The Claude Code VS Code extension has no accent-colour setting. **claude-recolor** is a recipe your Claude agent follows: it helps you pick a colour, patches the extension, and re-applies it after every update.
 
 > [!NOTE]
